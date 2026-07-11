@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Daily P&L Journal</title>
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0f1115">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="P&L Journal">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png">
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --border:#2a2f3a;
+    --text:#e7e9ee; --muted:#9aa3b2; --accent:#6c8cff; --green:#2ecc71; --red:#ff5d5d;
+    --amber:#f5a623;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);padding-bottom:env(safe-area-inset-bottom);}
+  header{display:flex;align-items:center;justify-content:space-between;padding:calc(16px + env(safe-area-inset-top)) 16px 16px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg);z-index:10;flex-wrap:wrap;gap:8px;}
+  header h1{font-size:18px;margin:0;font-weight:600;}
+  .status{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px;}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--red);}
+  .dot.ok{background:var(--green);}
+  button{cursor:pointer;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;background:var(--accent);color:#fff;}
+  button.secondary{background:var(--panel2);color:var(--text);border:1px solid var(--border);}
+  button.ghost{background:transparent;color:var(--muted);border:1px solid var(--border);}
+  button:disabled{opacity:.5;cursor:not-allowed;}
+  main{max-width:1100px;margin:0 auto;padding:16px;}
+  @media (max-width:480px){
+    main{padding:12px;}
+    .grid{grid-template-columns:repeat(2,1fr);}
+    table{font-size:12px;}
+    th,td{padding:6px 6px;}
+  }
+  .tabs{display:flex;gap:8px;margin-bottom:20px;border-bottom:1px solid var(--border);}
+  .tab{padding:10px 16px;font-size:13px;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;}
+  .tab.active{color:var(--text);border-bottom-color:var(--accent);}
+  .view{display:none;}
+  .view.active{display:block;}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:18px;}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;}
+  .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px;}
+  .field input{width:100%;padding:9px 10px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:14px;}
+  .stat{background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:14px;}
+  .stat .label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
+  .stat .value{font-size:20px;font-weight:700;margin-top:6px;}
+  .pos{color:var(--green);} .neg{color:var(--red);}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th,td{padding:8px 10px;text-align:right;border-bottom:1px solid var(--border);white-space:nowrap;}
+  th:first-child,td:first-child{text-align:left;}
+  th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;}
+  tr:hover{background:var(--panel2);}
+  .row-actions{display:flex;gap:6px;justify-content:flex-end;}
+  .row-actions button{padding:4px 8px;font-size:11px;}
+  .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:100;}
+  .modal-backdrop.open{display:flex;}
+  .modal{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:22px;width:420px;max-width:90vw;max-height:85vh;overflow:auto;}
+  .modal h2{margin-top:0;font-size:16px;}
+  .modal .field{margin-bottom:12px;}
+  .hint{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.4;}
+  .toolbar{display:flex;gap:8px;justify-content:flex-end;margin-bottom:14px;flex-wrap:wrap;}
+  .chart-wrap{height:260px;margin-top:10px;}
+  select{padding:9px 10px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:13px;}
+  .empty{color:var(--muted);font-size:13px;padding:20px;text-align:center;}
+  .toast{position:fixed;bottom:20px;right:20px;background:var(--panel2);border:1px solid var(--border);padding:12px 16px;border-radius:8px;font-size:13px;z-index:200;display:none;}
+  .toast.show{display:block;}
+  .toast.error{border-color:var(--red);color:var(--red);}
+  .toast.success{border-color:var(--green);color:var(--green);}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Daily P&amp;L Journal</h1>
+  <div class="status">
+    <span class="dot" id="connDot"></span>
+    <span id="connText">Not connected</span>
+    <button class="ghost" id="settingsBtn">Settings</button>
+  </div>
+</header>
+
+<main>
+
+  <div class="card">
+    <div class="grid" id="entryForm">
+      <div class="field"><label>Date</label><input type="date" id="f_date"></div>
+      <div class="field"><label>Financial Balance</label><input type="number" step="0.01" id="f_financialBalance" placeholder="0.00"></div>
+      <div class="field"><label>Margin Due</label><input type="number" step="0.01" id="f_marginDue" placeholder="0.00"></div>
+      <div class="field"><label>Free Funds</label><input type="number" step="0.01" id="f_freeFunds" placeholder="0.00"></div>
+      <div class="field"><label>F&amp;O Debit/Credit</label><input type="number" step="0.01" id="f_fno" placeholder="+/- 0.00"></div>
+      <div class="field"><label>Stocks Debit/Credit</label><input type="number" step="0.01" id="f_stocks" placeholder="+/- 0.00"></div>
+      <div class="field"><label>Brokerage</label><input type="number" step="0.01" id="f_brokerage" placeholder="0.00"></div>
+      <div class="field"><label>Fund Added</label><input type="number" step="0.01" id="f_fundAdded" placeholder="0.00"></div>
+      <div class="field"><label>Fund Withdrawn</label><input type="number" step="0.01" id="f_fundWithdrawn" placeholder="0.00"></div>
+    </div>
+    <div class="toolbar" style="margin-top:16px;">
+      <button class="secondary" id="clearFormBtn">Clear</button>
+      <button id="saveEntryBtn">Save Day</button>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" data-view="daily">Daily</div>
+    <div class="tab" data-view="monthly">Monthly</div>
+    <div class="tab" data-view="fy">Financial Year</div>
+  </div>
+
+  <div class="view active" id="view-daily">
+    <div class="grid" id="dailyStats" style="margin-bottom:16px;"></div>
+    <div class="card">
+      <div class="toolbar">
+        <button class="ghost" id="exportCsvBtn">Export CSV</button>
+        <button class="secondary" id="refreshBtn">Reload from GitHub</button>
+      </div>
+      <div style="overflow-x:auto;">
+        <table id="dailyTable">
+          <thead><tr>
+            <th>Date</th><th>Fin. Balance</th><th>Margin Due</th><th>Free Funds</th>
+            <th>F&amp;O D/C</th><th>Stocks D/C</th><th>Brokerage</th><th>Day PnL</th>
+            <th>Fund Added</th><th>Fund Withdrawn</th><th></th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="view" id="view-monthly">
+    <div class="card">
+      <div class="chart-wrap"><canvas id="monthlyChart"></canvas></div>
+    </div>
+    <div class="card">
+      <div style="overflow-x:auto;">
+        <table id="monthlyTable">
+          <thead><tr><th>Month</th><th>Trading PnL</th><th>Brokerage</th><th>Fund Added</th><th>Fund Withdrawn</th><th>Net Fund Flow</th><th>Trading Days</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="view" id="view-fy">
+    <div class="card">
+      <div class="chart-wrap"><canvas id="fyChart"></canvas></div>
+    </div>
+    <div class="card">
+      <div style="overflow-x:auto;">
+        <table id="fyTable">
+          <thead><tr><th>Financial Year</th><th>Trading PnL</th><th>Brokerage</th><th>Fund Added</th><th>Fund Withdrawn</th><th>Net Fund Flow</th><th>Trading Days</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<div class="modal-backdrop" id="settingsModal">
+  <div class="modal">
+    <h2>GitHub Sync Settings</h2>
+    <div class="field">
+      <label>GitHub username / org</label>
+      <input type="text" id="s_owner" placeholder="e.g. yonko">
+    </div>
+    <div class="field">
+      <label>Repository name</label>
+      <input type="text" id="s_repo" placeholder="e.g. pnl-journal">
+    </div>
+    <div class="field">
+      <label>Branch</label>
+      <input type="text" id="s_branch" placeholder="main">
+    </div>
+    <div class="field">
+      <label>Data file path</label>
+      <input type="text" id="s_path" placeholder="data/pnl-journal.json">
+    </div>
+    <div class="field">
+      <label>Personal Access Token</label>
+      <input type="password" id="s_token" placeholder="ghp_...">
+      <div class="hint">Needs Contents read/write on this repo (fine-grained token) or classic token with "repo" scope. Stored only in this browser's local storage &mdash; never uploaded anywhere else.</div>
+    </div>
+    <div class="toolbar">
+      <button class="secondary" id="settingsCancelBtn">Cancel</button>
+      <button id="settingsSaveBtn">Save &amp; Connect</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  "use strict";
+
+  const LS_CONFIG = "pnlj_config";
+  const LS_CACHE = "pnlj_entries_cache";
+
+  let config = JSON.parse(localStorage.getItem(LS_CONFIG) || "null") || {
+    owner:"", repo:"", branch:"main", path:"data/pnl-journal.json", token:""
+  };
+  let entries = JSON.parse(localStorage.getItem(LS_CACHE) || "[]");
+  let fileSha = null;
+
+  const $ = (id) => document.getElementById(id);
+
+  function toast(msg, type){
+    const t = $("toast");
+    t.textContent = msg;
+    t.className = "toast show" + (type ? " " + type : "");
+    clearTimeout(toast._h);
+    toast._h = setTimeout(()=> t.className = "toast", 3000);
+  }
+
+  function fmt(n){
+    n = Number(n) || 0;
+    return n.toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2});
+  }
+
+  function num(v){
+    const n = parseFloat(v);
+    return isNaN(n) ? 0 : n;
+  }
+
+  function dayPnl(e){
+    return num(e.fno) + num(e.stocks) - num(e.brokerage);
+  }
+
+  function fyLabel(dateStr){
+    const d = new Date(dateStr + "T00:00:00");
+    const y = d.getFullYear(), m = d.getMonth(); // 0=Jan
+    const startY = m >= 3 ? y : y - 1; // FY starts April
+    return "FY " + startY + "-" + String((startY+1) % 100).padStart(2,"0");
+  }
+
+  function monthLabel(dateStr){
+    const d = new Date(dateStr + "T00:00:00");
+    return d.toLocaleString(undefined,{month:"short", year:"numeric"});
+  }
+
+  function monthKey(dateStr){ return dateStr.slice(0,7); }
+
+  // ---------- GitHub API ----------
+
+  function ghHeaders(){
+    return {
+      "Authorization": "token " + config.token,
+      "Accept": "application/vnd.github+json"
+    };
+  }
+
+  function ghUrl(){
+    return `https://api.github.com/repos/${config.owner}/${config.repo}/contents/${config.path}`;
+  }
+
+  function b64EncodeUnicode(str){
+    return btoa(unescape(encodeURIComponent(str)));
+  }
+  function b64DecodeUnicode(str){
+    return decodeURIComponent(escape(atob(str)));
+  }
+
+  async function githubLoad(){
+    if(!config.owner || !config.repo || !config.token){
+      setConn(false, "Not connected");
+      return;
+    }
+    setConn(false, "Syncing...");
+    try{
+      const res = await fetch(ghUrl() + `?ref=${encodeURIComponent(config.branch||"main")}`, { headers: ghHeaders() });
+      if(res.status === 404){
+        fileSha = null;
+        entries = entries || [];
+        setConn(true, "Connected (no data yet)");
+      } else if(res.ok){
+        const json = await res.json();
+        fileSha = json.sha;
+        const content = b64DecodeUnicode(json.content.replace(/\n/g,""));
+        entries = JSON.parse(content);
+        setConn(true, "Connected — synced");
+      } else {
+        const err = await res.text();
+        throw new Error(`GitHub error ${res.status}: ${err}`);
+      }
+      localStorage.setItem(LS_CACHE, JSON.stringify(entries));
+      renderAll();
+    } catch(e){
+      setConn(false, "Connection failed");
+      toast(e.message, "error");
+    }
+  }
+
+  async function githubSave(){
+    if(!config.owner || !config.repo || !config.token){
+      toast("Configure GitHub settings first (top right)", "error");
+      return false;
+    }
+    try{
+      const body = {
+        message: "Update P&L journal " + new Date().toISOString(),
+        content: b64EncodeUnicode(JSON.stringify(entries, null, 2)),
+        branch: config.branch || "main"
+      };
+      if(fileSha) body.sha = fileSha;
+      const res = await fetch(ghUrl(), {
+        method: "PUT",
+        headers: { ...ghHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      if(!res.ok){
+        const err = await res.text();
+        throw new Error(`GitHub error ${res.status}: ${err}`);
+      }
+      const json = await res.json();
+      fileSha = json.content.sha;
+      setConn(true, "Connected — synced");
+      return true;
+    } catch(e){
+      setConn(true, "Sync failed — saved locally only");
+      toast(e.message, "error");
+      return false;
+    }
+  }
+
+  function setConn(ok, text){
+    $("connDot").className = "dot" + (ok ? " ok" : "");
+    $("connText").textContent = text;
+  }
+
+  // ---------- Rendering ----------
+
+  function renderAll(){
+    renderDaily();
+    renderMonthly();
+    renderFy();
+  }
+
+  function renderDaily(){
+    const sorted = [...entries].sort((a,b)=> b.date.localeCompare(a.date));
+    const tbody = document.querySelector("#dailyTable tbody");
+    tbody.innerHTML = "";
+    if(sorted.length === 0){
+      tbody.innerHTML = `<tr><td colspan="11" class="empty">No entries yet. Add your first day above.</td></tr>`;
+    }
+    for(const e of sorted){
+      const pnl = dayPnl(e);
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${e.date}</td>
+        <td>${fmt(e.financialBalance)}</td>
+        <td>${fmt(e.marginDue)}</td>
+        <td>${fmt(e.freeFunds)}</td>
+        <td class="${num(e.fno)>=0?'pos':'neg'}">${fmt(e.fno)}</td>
+        <td class="${num(e.stocks)>=0?'pos':'neg'}">${fmt(e.stocks)}</td>
+        <td>${fmt(e.brokerage)}</td>
+        <td class="${pnl>=0?'pos':'neg'}">${fmt(pnl)}</td>
+        <td>${fmt(e.fundAdded)}</td>
+        <td>${fmt(e.fundWithdrawn)}</td>
+        <td class="row-actions">
+          <button class="ghost" data-edit="${e.date}">Edit</button>
+          <button class="ghost" data-del="${e.date}">Del</button>
+        </td>`;
+      tbody.appendChild(tr);
+    }
+    tbody.querySelectorAll("[data-edit]").forEach(b=> b.onclick = ()=> loadIntoForm(b.dataset.edit));
+    tbody.querySelectorAll("[data-del]").forEach(b=> b.onclick = ()=> deleteEntry(b.dataset.del));
+
+    // stats
+    const totalPnl = entries.reduce((s,e)=> s + dayPnl(e), 0);
+    const todayStr = new Date().toISOString().slice(0,10);
+    const thisMonth = entries.filter(e=> monthKey(e.date) === todayStr.slice(0,7));
+    const monthPnl = thisMonth.reduce((s,e)=> s + dayPnl(e), 0);
+    const latest = sorted[0];
+    const statsHtml = `
+      <div class="stat"><div class="label">All-time PnL</div><div class="value ${totalPnl>=0?'pos':'neg'}">${fmt(totalPnl)}</div></div>
+      <div class="stat"><div class="label">This Month PnL</div><div class="value ${monthPnl>=0?'pos':'neg'}">${fmt(monthPnl)}</div></div>
+      <div class="stat"><div class="label">Latest Financial Balance</div><div class="value">${latest?fmt(latest.financialBalance):"-"}</div></div>
+      <div class="stat"><div class="label">Latest Free Funds</div><div class="value">${latest?fmt(latest.freeFunds):"-"}</div></div>
+      <div class="stat"><div class="label">Latest Margin Due</div><div class="value">${latest?fmt(latest.marginDue):"-"}</div></div>
+    `;
+    $("dailyStats").innerHTML = statsHtml;
+  }
+
+  function groupBy(keyFn, labelFn){
+    const map = new Map();
+    for(const e of entries){
+      const k = keyFn(e.date);
+      if(!map.has(k)) map.set(k, { key:k, label: labelFn(e.date), pnl:0, brokerage:0, fundAdded:0, fundWithdrawn:0, days:0 });
+      const g = map.get(k);
+      g.pnl += dayPnl(e);
+      g.brokerage += num(e.brokerage);
+      g.fundAdded += num(e.fundAdded);
+      g.fundWithdrawn += num(e.fundWithdrawn);
+      g.days += 1;
+    }
+    return [...map.values()].sort((a,b)=> a.key.localeCompare(b.key));
+  }
+
+  let monthlyChartInst, fyChartInst;
+
+  function renderMonthly(){
+    const groups = groupBy(monthKey, monthLabel);
+    const tbody = document.querySelector("#monthlyTable tbody");
+    tbody.innerHTML = groups.length ? "" : `<tr><td colspan="7" class="empty">No data yet.</td></tr>`;
+    for(const g of [...groups].reverse()){
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${g.label}</td><td class="${g.pnl>=0?'pos':'neg'}">${fmt(g.pnl)}</td><td>${fmt(g.brokerage)}</td><td>${fmt(g.fundAdded)}</td><td>${fmt(g.fundWithdrawn)}</td><td>${fmt(g.fundAdded-g.fundWithdrawn)}</td><td>${g.days}</td>`;
+      tbody.appendChild(tr);
+    }
+    drawChart("monthlyChart", groups, (inst)=> monthlyChartInst = inst, monthlyChartInst);
+  }
+
+  function renderFy(){
+    const groups = groupBy(fyLabel, fyLabel);
+    const tbody = document.querySelector("#fyTable tbody");
+    tbody.innerHTML = groups.length ? "" : `<tr><td colspan="7" class="empty">No data yet.</td></tr>`;
+    for(const g of [...groups].reverse()){
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${g.label}</td><td class="${g.pnl>=0?'pos':'neg'}">${fmt(g.pnl)}</td><td>${fmt(g.brokerage)}</td><td>${fmt(g.fundAdded)}</td><td>${fmt(g.fundWithdrawn)}</td><td>${fmt(g.fundAdded-g.fundWithdrawn)}</td><td>${g.days}</td>`;
+      tbody.appendChild(tr);
+    }
+    drawChart("fyChart", groups, (inst)=> fyChartInst = inst, fyChartInst);
+  }
+
+  function drawChart(canvasId, groups, setInst, existing){
+    const ctx = document.getElementById(canvasId);
+    const labels = groups.map(g=>g.label);
+    const data = groups.map(g=>Number(g.pnl.toFixed(2)));
+    if(existing){ existing.destroy(); }
+    const inst = new Chart(ctx, {
+      type: "bar",
+      data: { labels, datasets: [{ label:"Trading PnL", data, backgroundColor: data.map(v=> v>=0 ? "#2ecc71" : "#ff5d5d") }] },
+      options: {
+        responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{ display:false } },
+        scales:{
+          x:{ ticks:{ color:"#9aa3b2" }, grid:{ color:"#2a2f3a" } },
+          y:{ ticks:{ color:"#9aa3b2" }, grid:{ color:"#2a2f3a" } }
+        }
+      }
+    });
+    setInst(inst);
+  }
+
+  // ---------- Form ----------
+
+  function clearForm(){
+    $("f_date").value = new Date().toISOString().slice(0,10);
+    ["financialBalance","marginDue","freeFunds","fno","stocks","brokerage","fundAdded","fundWithdrawn"]
+      .forEach(k=> $("f_"+k).value = "");
+  }
+
+  function loadIntoForm(date){
+    const e = entries.find(x=>x.date===date);
+    if(!e) return;
+    $("f_date").value = e.date;
+    $("f_financialBalance").value = e.financialBalance;
+    $("f_marginDue").value = e.marginDue;
+    $("f_freeFunds").value = e.freeFunds;
+    $("f_fno").value = e.fno;
+    $("f_stocks").value = e.stocks;
+    $("f_brokerage").value = e.brokerage;
+    $("f_fundAdded").value = e.fundAdded;
+    $("f_fundWithdrawn").value = e.fundWithdrawn;
+    window.scrollTo({top:0, behavior:"smooth"});
+  }
+
+  async function saveEntry(){
+    const date = $("f_date").value;
+    if(!date){ toast("Pick a date", "error"); return; }
+    const entry = {
+      date,
+      financialBalance: num($("f_financialBalance").value),
+      marginDue: num($("f_marginDue").value),
+      freeFunds: num($("f_freeFunds").value),
+      fno: num($("f_fno").value),
+      stocks: num($("f_stocks").value),
+      brokerage: num($("f_brokerage").value),
+      fundAdded: num($("f_fundAdded").value),
+      fundWithdrawn: num($("f_fundWithdrawn").value)
+    };
+    const idx = entries.findIndex(e=>e.date===date);
+    if(idx >= 0) entries[idx] = entry; else entries.push(entry);
+    localStorage.setItem(LS_CACHE, JSON.stringify(entries));
+    renderAll();
+    toast("Saving...");
+    const ok = await githubSave();
+    if(ok) toast("Saved & synced to GitHub", "success");
+    clearForm();
+  }
+
+  async function deleteEntry(date){
+    if(!confirm(`Delete entry for ${date}?`)) return;
+    entries = entries.filter(e=>e.date!==date);
+    localStorage.setItem(LS_CACHE, JSON.stringify(entries));
+    renderAll();
+    const ok = await githubSave();
+    if(ok) toast("Deleted & synced", "success");
+  }
+
+  function exportCsv(){
+    const headers = ["date","financialBalance","marginDue","freeFunds","fno","stocks","brokerage","dayPnl","fundAdded","fundWithdrawn"];
+    const rows = [...entries].sort((a,b)=>a.date.localeCompare(b.date)).map(e=>
+      [e.date,e.financialBalance,e.marginDue,e.freeFunds,e.fno,e.stocks,e.brokerage,dayPnl(e),e.fundAdded,e.fundWithdrawn].join(",")
+    );
+    const csv = headers.join(",") + "\n" + rows.join("\n");
+    const blob = new Blob([csv], {type:"text/csv"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "pnl-journal.csv";
+    a.click();
+  }
+
+  // ---------- Settings ----------
+
+  function openSettings(){
+    $("s_owner").value = config.owner || "";
+    $("s_repo").value = config.repo || "";
+    $("s_branch").value = config.branch || "main";
+    $("s_path").value = config.path || "data/pnl-journal.json";
+    $("s_token").value = config.token || "";
+    $("settingsModal").classList.add("open");
+  }
+  function closeSettings(){ $("settingsModal").classList.remove("open"); }
+
+  async function saveSettings(){
+    config = {
+      owner: $("s_owner").value.trim(),
+      repo: $("s_repo").value.trim(),
+      branch: $("s_branch").value.trim() || "main",
+      path: $("s_path").value.trim() || "data/pnl-journal.json",
+      token: $("s_token").value.trim()
+    };
+    localStorage.setItem(LS_CONFIG, JSON.stringify(config));
+    closeSettings();
+    await githubLoad();
+  }
+
+  // ---------- Tabs ----------
+
+  function initTabs(){
+    document.querySelectorAll(".tab").forEach(tab=>{
+      tab.onclick = ()=>{
+        document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
+        document.querySelectorAll(".view").forEach(v=>v.classList.remove("active"));
+        tab.classList.add("active");
+        $("view-"+tab.dataset.view).classList.add("active");
+      };
+    });
+  }
+
+  // ---------- Init ----------
+
+  function init(){
+    clearForm();
+    initTabs();
+    $("saveEntryBtn").onclick = saveEntry;
+    $("clearFormBtn").onclick = clearForm;
+    $("exportCsvBtn").onclick = exportCsv;
+    $("refreshBtn").onclick = githubLoad;
+    $("settingsBtn").onclick = openSettings;
+    $("settingsCancelBtn").onclick = closeSettings;
+    $("settingsSaveBtn").onclick = saveSettings;
+    renderAll();
+    if(config.token) githubLoad(); else setConn(false, "Not connected");
+  }
+
+  document.addEventListener("DOMContentLoaded", init);
+
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("service-worker.js").catch(() => {});
+    });
+  }
+})();
+</script>
+
+</body>
+</html>
