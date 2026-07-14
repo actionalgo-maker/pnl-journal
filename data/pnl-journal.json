@@ -1,12 +1,12 @@
 [
   {
     "date": "2026-07-14",
-    "financialBalance": 0,
-    "marginDue": 0,
-    "freeFunds": 0,
-    "fno": 0,
+    "financialBalance": 597432.86,
+    "marginDue": -457626.22,
+    "freeFunds": 139806.64,
+    "fno": -11894.13,
     "stocks": 0,
-    "brokerage": 0,
+    "brokerage": 183,
     "fundAdded": 0,
     "fundWithdrawn": 0
   }
