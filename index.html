@@ -230,7 +230,10 @@
   }
 
   function dayPnl(e){
-    return num(e.fno) + num(e.stocks) - num(e.brokerage);
+    // Day PnL = F&O activity only, minus brokerage. Stocks Debit/Credit is
+    // capital movement (buying/selling holdings), not trading profit, so it
+    // is intentionally excluded here.
+    return num(e.fno) - num(e.brokerage);
   }
 
   function fyLabel(dateStr){
