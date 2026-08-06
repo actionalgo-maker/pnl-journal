@@ -166,8 +166,8 @@
   },
   {
     "date": "2026-08-06",
-    "financialBalance": 0,
-    "marginDue": 0,
+    "financialBalance": 22222,
+    "marginDue": 222,
     "freeFunds": 0,
     "fno": 0,
     "stocks": 0,
