@@ -111,6 +111,7 @@
     <div class="tab active" data-view="daily">Daily</div>
     <div class="tab" data-view="monthly">Monthly</div>
     <div class="tab" data-view="fy">Financial Year</div>
+    <div class="tab" data-view="trades">Trades</div>
   </div>
 
   <div class="view active" id="view-daily">
@@ -161,6 +162,35 @@
     </div>
   </div>
 
+  <div class="view" id="view-trades">
+    <div class="card">
+      <div class="grid" id="tradeForm">
+        <div class="field"><label>Date</label><input type="date" id="t_date"></div>
+        <div class="field"><label>Instrument</label><input type="text" id="t_instrument" placeholder="e.g. NIFTY 24500 CE"></div>
+        <div class="field"><label>P&amp;L</label><input type="number" step="0.01" id="t_pnl" placeholder="+/- 0.00"></div>
+        <div class="field" style="grid-column:1/-1;"><label>Comment</label><input type="text" id="t_comment" placeholder="Optional notes"></div>
+      </div>
+      <div class="toolbar" style="margin-top:16px;">
+        <button class="secondary" id="clearTradeBtn">Clear</button>
+        <button id="saveTradeBtn">Save Trade</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="toolbar">
+        <button class="ghost" id="exportTradesCsvBtn">Export CSV</button>
+        <button class="secondary" id="refreshTradesBtn">Reload from GitHub</button>
+      </div>
+      <div style="overflow-x:auto;">
+        <table id="tradesTable">
+          <thead><tr>
+            <th>Date</th><th style="text-align:left;">Instrument</th><th>P&amp;L</th><th style="text-align:left;">Comment</th><th></th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
 </main>
 
 <div class="modal-backdrop" id="settingsModal">
@@ -183,6 +213,10 @@
       <input type="text" id="s_path" placeholder="data/pnl-journal.json">
     </div>
     <div class="field">
+      <label>Trades data file path</label>
+      <input type="text" id="s_tradesPath" placeholder="data/trades.json">
+    </div>
+    <div class="field">
       <label>Personal Access Token</label>
       <input type="password" id="s_token" placeholder="ghp_...">
       <div class="hint">Needs Contents read/write on this repo (fine-grained token) or classic token with "repo" scope. Stored only in this browser's local storage &mdash; never uploaded anywhere else.</div>
@@ -202,12 +236,16 @@
 
   const LS_CONFIG = "pnlj_config";
   const LS_CACHE = "pnlj_entries_cache";
+  const LS_TRADES_CACHE = "pnlj_trades_cache";
 
   let config = JSON.parse(localStorage.getItem(LS_CONFIG) || "null") || {
-    owner:"", repo:"", branch:"main", path:"data/pnl-journal.json", token:""
+    owner:"", repo:"", branch:"main", path:"data/pnl-journal.json", tradesPath:"data/trades.json", token:""
   };
+  if(!config.tradesPath) config.tradesPath = "data/trades.json";
   let entries = JSON.parse(localStorage.getItem(LS_CACHE) || "[]");
   let fileSha = null;
+  let trades = JSON.parse(localStorage.getItem(LS_TRADES_CACHE) || "[]");
+  let tradeFileSha = null;
 
   const $ = (id) => document.getElementById(id);
 
@@ -259,8 +297,8 @@
     };
   }
 
-  function ghUrl(){
-    return `https://api.github.com/repos/${config.owner}/${config.repo}/contents/${config.path}`;
+  function ghUrl(path){
+    return `https://api.github.com/repos/${config.owner}/${config.repo}/contents/${path || config.path}`;
   }
 
   function b64EncodeUnicode(str){
@@ -327,6 +365,61 @@
       return true;
     } catch(e){
       setConn(true, "Sync failed — saved locally only");
+      toast(e.message, "error");
+      return false;
+    }
+  }
+
+  async function githubLoadTrades(){
+    if(!config.owner || !config.repo || !config.token){
+      return;
+    }
+    try{
+      const res = await fetch(ghUrl(config.tradesPath) + `?ref=${encodeURIComponent(config.branch||"main")}`, { headers: ghHeaders() });
+      if(res.status === 404){
+        tradeFileSha = null;
+        trades = trades || [];
+      } else if(res.ok){
+        const json = await res.json();
+        tradeFileSha = json.sha;
+        const content = b64DecodeUnicode(json.content.replace(/\n/g,""));
+        trades = JSON.parse(content);
+      } else {
+        const err = await res.text();
+        throw new Error(`GitHub error ${res.status}: ${err}`);
+      }
+      localStorage.setItem(LS_TRADES_CACHE, JSON.stringify(trades));
+      renderTrades();
+    } catch(e){
+      toast(e.message, "error");
+    }
+  }
+
+  async function githubSaveTrades(){
+    if(!config.owner || !config.repo || !config.token){
+      toast("Configure GitHub settings first (top right)", "error");
+      return false;
+    }
+    try{
+      const body = {
+        message: "Update trades log " + new Date().toISOString(),
+        content: b64EncodeUnicode(JSON.stringify(trades, null, 2)),
+        branch: config.branch || "main"
+      };
+      if(tradeFileSha) body.sha = tradeFileSha;
+      const res = await fetch(ghUrl(config.tradesPath), {
+        method: "PUT",
+        headers: { ...ghHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      if(!res.ok){
+        const err = await res.text();
+        throw new Error(`GitHub error ${res.status}: ${err}`);
+      }
+      const json = await res.json();
+      tradeFileSha = json.content.sha;
+      return true;
+    } catch(e){
       toast(e.message, "error");
       return false;
     }
@@ -452,6 +545,111 @@
     setInst(inst);
   }
 
+  // ---------- Trades ----------
+
+  function tradePnl(t){
+    return num(t.pnl);
+  }
+
+  function renderTrades(){
+    const sorted = [...trades].sort((a,b)=> b.date.localeCompare(a.date));
+    const tbody = document.querySelector("#tradesTable tbody");
+    tbody.innerHTML = "";
+    if(sorted.length === 0){
+      tbody.innerHTML = `<tr><td colspan="5" class="empty">No trades yet. Add your first trade above.</td></tr>`;
+    }
+    for(const t of sorted){
+      const pnl = tradePnl(t);
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${t.date}</td>
+        <td style="text-align:left;">${escapeHtml(t.instrument)}</td>
+        <td class="${pnl>=0?'pos':'neg'}">${fmt(pnl)}</td>
+        <td style="text-align:left;">${escapeHtml(t.comment||"")}</td>
+        <td class="row-actions">
+          <button class="ghost" data-tedit="${t.id}">Edit</button>
+          <button class="ghost" data-tdel="${t.id}">Del</button>
+        </td>`;
+      tbody.appendChild(tr);
+    }
+    tbody.querySelectorAll("[data-tedit]").forEach(b=> b.onclick = ()=> loadTradeIntoForm(b.dataset.tedit));
+    tbody.querySelectorAll("[data-tdel]").forEach(b=> b.onclick = ()=> deleteTrade(b.dataset.tdel));
+  }
+
+  function escapeHtml(str){
+    return String(str).replace(/[&<>"']/g, ch => ({
+      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+    }[ch]));
+  }
+
+  function makeTradeId(){
+    return (crypto.randomUUID ? crypto.randomUUID() : "t_" + Date.now() + "_" + Math.random().toString(36).slice(2));
+  }
+
+  function clearTradeForm(){
+    $("t_date").value = new Date().toISOString().slice(0,10);
+    $("t_instrument").value = "";
+    $("t_pnl").value = "";
+    $("t_comment").value = "";
+    delete $("saveTradeBtn").dataset.editId;
+  }
+
+  function loadTradeIntoForm(id){
+    const t = trades.find(x=>x.id===id);
+    if(!t) return;
+    $("t_date").value = t.date;
+    $("t_instrument").value = t.instrument;
+    $("t_pnl").value = t.pnl;
+    $("t_comment").value = t.comment || "";
+    $("saveTradeBtn").dataset.editId = t.id;
+    window.scrollTo({top:0, behavior:"smooth"});
+  }
+
+  async function saveTrade(){
+    const date = $("t_date").value;
+    const instrument = $("t_instrument").value.trim();
+    if(!date){ toast("Pick a date", "error"); return; }
+    if(!instrument){ toast("Enter an instrument name", "error"); return; }
+    const editId = $("saveTradeBtn").dataset.editId;
+    const trade = {
+      id: editId || makeTradeId(),
+      date,
+      instrument,
+      pnl: num($("t_pnl").value),
+      comment: $("t_comment").value.trim()
+    };
+    const idx = trades.findIndex(t=>t.id===trade.id);
+    if(idx >= 0) trades[idx] = trade; else trades.push(trade);
+    localStorage.setItem(LS_TRADES_CACHE, JSON.stringify(trades));
+    renderTrades();
+    toast("Saving...");
+    const ok = await githubSaveTrades();
+    if(ok) toast("Trade saved & synced to GitHub", "success");
+    clearTradeForm();
+  }
+
+  async function deleteTrade(id){
+    if(!confirm("Delete this trade?")) return;
+    trades = trades.filter(t=>t.id!==id);
+    localStorage.setItem(LS_TRADES_CACHE, JSON.stringify(trades));
+    renderTrades();
+    const ok = await githubSaveTrades();
+    if(ok) toast("Deleted & synced", "success");
+  }
+
+  function exportTradesCsv(){
+    const headers = ["date","instrument","pnl","comment"];
+    const rows = [...trades].sort((a,b)=>a.date.localeCompare(b.date)).map(t=>
+      [t.date, `"${(t.instrument||"").replace(/"/g,'""')}"`, t.pnl, `"${(t.comment||"").replace(/"/g,'""')}"`].join(",")
+    );
+    const csv = headers.join(",") + "\n" + rows.join("\n");
+    const blob = new Blob([csv], {type:"text/csv"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "trades.csv";
+    a.click();
+  }
+
   // ---------- Form ----------
 
   function clearForm(){
@@ -528,6 +726,7 @@
     $("s_repo").value = config.repo || "";
     $("s_branch").value = config.branch || "main";
     $("s_path").value = config.path || "data/pnl-journal.json";
+    $("s_tradesPath").value = config.tradesPath || "data/trades.json";
     $("s_token").value = config.token || "";
     $("settingsModal").classList.add("open");
   }
@@ -539,11 +738,13 @@
       repo: $("s_repo").value.trim(),
       branch: $("s_branch").value.trim() || "main",
       path: $("s_path").value.trim() || "data/pnl-journal.json",
+      tradesPath: $("s_tradesPath").value.trim() || "data/trades.json",
       token: $("s_token").value.trim()
     };
     localStorage.setItem(LS_CONFIG, JSON.stringify(config));
     closeSettings();
     await githubLoad();
+    await githubLoadTrades();
   }
 
   // ---------- Tabs ----------
@@ -563,16 +764,22 @@
 
   function init(){
     clearForm();
+    clearTradeForm();
     initTabs();
     $("saveEntryBtn").onclick = saveEntry;
     $("clearFormBtn").onclick = clearForm;
     $("exportCsvBtn").onclick = exportCsv;
     $("refreshBtn").onclick = githubLoad;
+    $("saveTradeBtn").onclick = saveTrade;
+    $("clearTradeBtn").onclick = clearTradeForm;
+    $("exportTradesCsvBtn").onclick = exportTradesCsv;
+    $("refreshTradesBtn").onclick = githubLoadTrades;
     $("settingsBtn").onclick = openSettings;
     $("settingsCancelBtn").onclick = closeSettings;
     $("settingsSaveBtn").onclick = saveSettings;
     renderAll();
-    if(config.token) githubLoad(); else setConn(false, "Not connected");
+    renderTrades();
+    if(config.token){ githubLoad(); githubLoadTrades(); } else setConn(false, "Not connected");
   }
 
   document.addEventListener("DOMContentLoaded", init);
