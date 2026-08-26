@@ -273,5 +273,16 @@
     "brokerage": 171.98,
     "fundAdded": 0,
     "fundWithdrawn": 0
+  },
+  {
+    "date": "2026-08-25",
+    "financialBalance": 512359.12,
+    "marginDue": -391105.42,
+    "freeFunds": 121253.7,
+    "fno": 0,
+    "stocks": 0,
+    "brokerage": 0,
+    "fundAdded": 0,
+    "fundWithdrawn": 0
   }
 ]
